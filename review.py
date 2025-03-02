@@ -68,6 +68,7 @@ def review_commit(args):
     print("Writing analysis for ", commit)
     with open(f'out/{commit}.json', 'w') as f:
         json.dump({
+            "commit": commit,
             "analysis": analysis,
             "repro": repro
         }, f, indent=4)
