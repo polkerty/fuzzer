@@ -7,15 +7,13 @@ import os
 from worker import run_jobs
 from llm import review, reproduce
 
-def get_last_commit_hashes(n, repo_path="."):
+def get_last_commit_hashes(n, repo_path):
     """
     Get the last n commit hashes from the specified repository.
     """
     try:
-        if repo_path != ".":
-            os.chdir(repo_path)
         output = subprocess.check_output(
-            ["git", "rev-list", f"-n{n}", "HEAD"],
+            ["git", "-C", repo_path, "rev-list", f"-n{n}", "HEAD"],
             stderr=subprocess.STDOUT
         )
         commit_hashes = output.decode("utf-8").strip().splitlines()
@@ -24,16 +22,14 @@ def get_last_commit_hashes(n, repo_path="."):
         print("Error retrieving commit hashes:", e.output.decode("utf-8"))
         return []
 
-def get_commit_patch(commit_hash, repo_path='.'):
+def get_commit_patch(commit_hash, repo_path):
+
     """
     Get the patch text for a commit using git format-patch.
     """
     try:
-        if repo_path != ".":
-            os.chdir(repo_path)
-
         output = subprocess.check_output(
-            ["git", "format-patch", "-1", commit_hash, "--stdout"],
+            ["git", "-C", repo_path, "format-patch", "-1", commit_hash, "--stdout"],
             stderr=subprocess.STDOUT
         )
         patch_text = output.decode("utf-8")
@@ -55,23 +51,36 @@ def build_prompt(patch_texts):
         prompt += "```\n" + patch + "\n```\n\n"
     return prompt
 
+def review_commit(args):
+    commit, patch = args
+    if len(patch) > 25000:
+        print(f"Skipping analysis for patch {commit} because it's too large")
+        return
+    analysis = review(patch)
+    print(commit, analysis)
+
+    if len(analysis):
+        repro = reproduce(patch, analysis)
+        print("<repro>", commit, repro)
+    else:
+        repro = None
+
+    print("Writing analysis for ", commit)
+    with open(f'out/{commit}.txt', 'w') as f:
+        json.dump({
+            "analysis": analysis,
+            "repro": repro
+        }, f)
+
 def review_commits(n, repo_path="."):
     commit_hashes = get_last_commit_hashes(n, repo_path)
     if not commit_hashes:
         print("No commits found or error accessing repository.")
         return
+    
+    patches = [(commit, get_commit_patch(commit, repo_path)) for commit in commit_hashes]
 
-    for commit in commit_hashes:
-        patch = get_commit_patch(commit)
-        if len(patch) > 25000:
-            print(f"Skipping analysis for patch {commit} because it's too large")
-            continue
-        analysis = review(patch)
-        print(commit, analysis)
-
-        if len(analysis):
-            repro = reproduce(patch, analysis)
-            print("<repro>", commit, repro)
+    run_jobs(review_commit, patches, max_workers=25, payload_arg_key_fn=lambda x: x[0])
 
 def reproduce_commit(commit_hash, repo_path="."):
     patch = get_commit_patch(commit_hash, repo_path)
