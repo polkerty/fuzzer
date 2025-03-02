@@ -117,7 +117,7 @@ def reproduce(diff, issues):
 
         text = response.choices[0].message.content
 
-        return json.loads(text)
+        return text # no need for json here
     except Exception as e:
         print(e)
         return None 
