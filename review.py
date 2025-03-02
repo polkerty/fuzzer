@@ -66,11 +66,11 @@ def review_commit(args):
         repro = None
 
     print("Writing analysis for ", commit)
-    with open(f'out/{commit}.txt', 'w') as f:
+    with open(f'out/{commit}.json', 'w') as f:
         json.dump({
             "analysis": analysis,
             "repro": repro
-        }, f)
+        }, f, indent=4)
 
 def review_commits(n, repo_path="."):
     commit_hashes = get_last_commit_hashes(n, repo_path)
