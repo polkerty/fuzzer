@@ -28,7 +28,10 @@ def review(diff):
                  obviously it's not worth flagging a bunch of issues with low confidence.
                  * severity: on a scale of 0 to 10, how important is this issue? Many
                  typos will be a 0, but still worth calling out, and like a zero-day vulnerability
-                 would be a 10.
+                 would be a 10. An example of something that usually isn't a bug is an apparent undefined 
+                 variable - usually it'll just be defined somewhere that's not part of the 
+                 patch itself, and this would be caught by the compiler. In general,
+                 you don't need to flag anything that the compiler would catch.
 
                  Your response should have the following format:
 
@@ -66,7 +69,7 @@ def review(diff):
 
                  If there are no issues, don't try to manufacture one - just return
                  an empty array. Remember, you're describing unintended problems you
-                 find in the code, not the overall purpose of the patch.
+                 find in the code, NOT the overall purpose of the patch.
 
     {diff}'''}
             
