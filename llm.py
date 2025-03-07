@@ -107,6 +107,10 @@ def code_tree(tree):
                  variable - usually it'll just be defined somewhere that's not part of the 
                  patch itself, and this would be caught by the compiler. In general,
                  you don't need to flag anything that the compiler would catch.
+                 A hypothetical coding flaw, like needing to check for a null pointer,
+                 etc, usually is not a big deal in practice, since we can assume
+                 that such an issue would probably have manifested by now. I don't really
+                 care about most code quality issues.
 
                  ONLY REPORT ISSUES THAT YOU ARE *VERY* CONFIDENT ABOUT.
                  THE VAST MAJORITY OF THE TIME, THERE WILL BE NO ISSUES.
