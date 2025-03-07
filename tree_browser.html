@@ -45,11 +45,15 @@
       margin-top: 5px;
       font-size: 0.9em;
     }
-    #filterPanel input {
+    #filterPanel input[type="text"],
+    #filterPanel input[type="number"] {
       width: 100%;
       padding: 4px;
       margin-top: 2px;
       box-sizing: border-box;
+    }
+    #filterPanel input[type="checkbox"] {
+      margin-right: 5px;
     }
     #filterPanel button {
       margin-top: 8px;
@@ -66,7 +70,6 @@
       padding: 10px;
       cursor: pointer;
       border-bottom: 1px solid #ddd;
-      /* Default background if no type */
       background-color: #e0e0e0;
     }
     #issueList li:hover {
@@ -85,7 +88,7 @@
       background-color: #eee;
       padding: 10px;
       overflow: auto;
-      white-space: pre-wrap; /* preserves multi-line formatting */
+      white-space: pre-wrap;
     }
     .nav-buttons {
       margin-top: 20px;
@@ -109,7 +112,7 @@
       padding: 0;
       margin: 0;
       display: flex;
-      flex-wrap: wrap; /* allows wrapping */
+      flex-wrap: wrap;
     }
     #tabsList li {
       padding: 8px 12px;
@@ -122,6 +125,18 @@
     #tabsList li.active {
       background-color: #fff;
       font-weight: bold;
+    }
+    /* WONTFIX and CONFIRMED button styling */
+    #toggleWontfixBtn, #toggleConfirmedBtn {
+      margin-top: 10px;
+      padding: 5px 10px;
+      font-size: 0.9em;
+      margin-right: 5px;
+    }
+    /* Style for confirmed checkmark in sidebar */
+    .confirmed-check {
+      color: green;
+      margin-right: 5px;
     }
   </style>
 </head>
@@ -143,6 +158,10 @@
         
         <label for="minSeverity">Minimum Severity:</label>
         <input type="number" id="minSeverity" placeholder="e.g., 0">
+        
+        <label>
+          <input type="checkbox" id="includeWontfix"> Show WONTFIX entries
+        </label>
         
         <button id="applyFilters">Apply Filters</button>
         <button id="clearFilters">Clear Filters</button>
@@ -172,6 +191,10 @@
       <h3>Source Code</h3>
       <pre id="sourceCode"></pre>
       
+      <!-- WONTFIX and CONFIRMED toggle buttons -->
+      <button id="toggleWontfixBtn">Mark as WONTFIX</button>
+      <button id="toggleConfirmedBtn">Mark as CONFIRMED</button>
+      
       <div class="nav-buttons">
         <button id="prevBtn">Previous</button>
         <button id="nextBtn">Next</button>
@@ -182,26 +205,61 @@
     let issues = [];
     let filteredIssues = [];
     let currentIndex = 0;
-    let currentFunctionIndex = 0; // index of currently selected function tab in the issue
+    let currentFunctionIndex = 0; // for the tabbed source code viewer
+
+    // --- LocalStorage helpers for WONTFIX ---
+    const STORAGE_KEY_WONTFIX = "wontfixEntries";
+    function getWontfixEntries() {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY_WONTFIX)) || [];
+    }
+    function isWontfixIssue(fnName) {
+      return getWontfixEntries().includes(fnName);
+    }
+    function toggleWontfixEntry(fnName) {
+      let list = getWontfixEntries();
+      if (list.includes(fnName)) {
+        list = list.filter(item => item !== fnName);
+      } else {
+        list.push(fnName);
+      }
+      localStorage.setItem(STORAGE_KEY_WONTFIX, JSON.stringify(list));
+    }
+    // --- LocalStorage helpers for CONFIRMED ---
+    const STORAGE_KEY_CONFIRMED = "confirmedEntries";
+    function getConfirmedEntries() {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY_CONFIRMED)) || [];
+    }
+    function isConfirmedIssue(fnName) {
+      return getConfirmedEntries().includes(fnName);
+    }
+    function toggleConfirmedEntry(fnName) {
+      let list = getConfirmedEntries();
+      if (list.includes(fnName)) {
+        list = list.filter(item => item !== fnName);
+      } else {
+        list.push(fnName);
+      }
+      localStorage.setItem(STORAGE_KEY_CONFIRMED, JSON.stringify(list));
+    }
+    // --- End LocalStorage helpers ---
 
     // Mapping analysis types to colors.
     function getColorForType(type) {
       if (!type) return "#e0e0e0";
       switch (type.toUpperCase()) {
         case "TYPO":
-          return "#ffcccc"; // light red
+          return "#ffcccc";
         case "LOGIC":
-          return "#ccffcc"; // light green
+          return "#ccffcc";
         case "PERFORMANCE":
-          return "#ccccff"; // light blue
+          return "#ccccff";
         default:
-          return "#e0e0e0"; // default grey
+          return "#e0e0e0";
       }
     }
     
     // Converts a local file path (from the JSON) to a GitHub URL.
     function convertPathToGitHubLink(filePath) {
-      // Adjust based on your repository layout.
       const marker = "/postgres/postgres/";
       const index = filePath.indexOf(marker);
       if (index !== -1) {
@@ -210,11 +268,10 @@
       return "#";
     }
 
-    // Loads a function's details (for the tabbed source code viewer).
+    // Loads a function's details for the tabbed source code viewer.
     function loadFunctionTab(fnObj) {
       document.getElementById('functionName').innerText = fnObj.functionName;
       document.getElementById('sourceCode').innerText = fnObj.source;
-      
       const githubLink = convertPathToGitHubLink(fnObj.file);
       const linkElem = document.getElementById('sourceLink');
       linkElem.href = githubLink;
@@ -237,31 +294,50 @@
         });
         tabsList.appendChild(li);
       });
-      // Set first tab active by default.
       if (allFunctions.length > 0) {
         document.querySelectorAll('#tabsList li')[0].classList.add('active');
+      }
+    }
+
+    // Updates the WONTFIX toggle button text for the current issue.
+    function updateWontfixButton() {
+      const btn = document.getElementById('toggleWontfixBtn');
+      const currentIssue = filteredIssues[currentIndex];
+      if (!currentIssue) return;
+      if (isWontfixIssue(currentIssue.tree.functionName)) {
+        btn.innerText = "Unmark WONTFIX";
+      } else {
+        btn.innerText = "Mark as WONTFIX";
+      }
+    }
+    
+    // Updates the CONFIRMED toggle button text for the current issue.
+    function updateConfirmedButton() {
+      const btn = document.getElementById('toggleConfirmedBtn');
+      const currentIssue = filteredIssues[currentIndex];
+      if (!currentIssue) return;
+      if (isConfirmedIssue(currentIssue.tree.functionName)) {
+        btn.innerHTML = "Unmark CONFIRMED <span style='color:green;'>&#10003;</span>";
+      } else {
+        btn.innerText = "Mark as CONFIRMED";
       }
     }
 
     // Loads a single issue into the content area.
     function loadIssue(index) {
       const issue = filteredIssues[index];
-      // Format analysis entries.
       document.getElementById('analysis').innerText = issue.analysis
         .map(a => 
           `Type: ${a.type}\nConfidence: ${a.confidence}\nSeverity: ${a.severity}\nDescription: ${a.description}`
         )
         .join("\n\n");
       
-      // Build an array of functions: top-level function and any called functions.
       const allFunctions = [];
-      // Top-level function.
       allFunctions.push({
         functionName: issue.tree.functionName,
         source: issue.tree.source,
         file: issue.tree.file
       });
-      // Called functions.
       if (issue.tree.calledFunctions && Array.isArray(issue.tree.calledFunctions)) {
         issue.tree.calledFunctions.forEach(fn => {
           allFunctions.push({
@@ -276,46 +352,57 @@
       if (allFunctions.length > 0) {
         loadFunctionTab(allFunctions[0]);
       }
-      // Update URL hash using the function name.
+      updateWontfixButton();
+      updateConfirmedButton();
       window.location.hash = encodeURIComponent(issue.tree.functionName);
     }
 
-    // Populates the sidebar using filteredIssues and updates the count.
+    // Populates the sidebar (and updates the count) so that only filtered issues appear.
     function populateSidebar() {
       const list = document.getElementById('issueList');
       list.innerHTML = "";
+      // Sort issues so that confirmed ones appear first.
+      let sortedIssues = filteredIssues.slice().sort((a, b) => {
+        const aConfirmed = isConfirmedIssue(a.tree.functionName) ? 0 : 1;
+        const bConfirmed = isConfirmedIssue(b.tree.functionName) ? 0 : 1;
+        if (aConfirmed !== bConfirmed) {
+          return aConfirmed - bConfirmed;
+        }
+        return a.tree.functionName.localeCompare(b.tree.functionName);
+      });
+      filteredIssues = sortedIssues;
       filteredIssues.forEach((issue, index) => {
         const li = document.createElement('li');
-        // Use the first analysis entry's type to determine color.
         const analysisType = (issue.analysis && issue.analysis.length > 0) ? issue.analysis[0].type : "";
         li.style.backgroundColor = getColorForType(analysisType);
-        const fileName = issue.tree.file.split('/').pop();
-        li.innerText = issue.tree.functionName + " (" + fileName + ")";
+        let displayText = issue.tree.functionName + " (" + issue.tree.file.split('/').pop() + ")";
+        if (isConfirmedIssue(issue.tree.functionName)) {
+          displayText = "<span class='confirmed-check'>&#10003;</span>" + displayText;
+        }
+        li.innerHTML = displayText;
         li.addEventListener('click', () => {
           currentIndex = index;
           loadIssue(currentIndex);
-          // Mark the active item.
           document.querySelectorAll('#issueList li').forEach((item, idx) => {
             item.classList.toggle('active', idx === index);
           });
         });
         list.appendChild(li);
       });
-      // Update count display.
       document.getElementById('itemCount').innerText = `Total items: ${filteredIssues.length}`;
     }
 
-    // Applies filters based on analysis type, min confidence, and min severity.
+    // Applies filters so that the count and sidebar reflect only matching issues.
     function applyFilters() {
       const typeFilter = document.getElementById("typeFilter").value.trim();
       const minConfidenceStr = document.getElementById("minConfidence").value;
       const minSeverityStr = document.getElementById("minSeverity").value;
+      const includeWontfix = document.getElementById("includeWontfix").checked;
       const minConfidence = minConfidenceStr ? parseFloat(minConfidenceStr) : null;
       const minSeverity = minSeverityStr ? parseFloat(minSeverityStr) : null;
       
       filteredIssues = issues.filter(issue => {
-        // Include the issue if at least one analysis entry matches all filters.
-        return issue.analysis.some(a => {
+        const analysisMatch = issue.analysis.some(a => {
           let match = true;
           if (typeFilter) {
             match = match && a.type.toLowerCase().includes(typeFilter.toLowerCase());
@@ -328,6 +415,10 @@
           }
           return match;
         });
+        if (!includeWontfix && isWontfixIssue(issue.tree.functionName)) {
+          return false;
+        }
+        return analysisMatch;
       });
       currentIndex = 0;
       populateSidebar();
@@ -348,6 +439,7 @@
       document.getElementById("typeFilter").value = "";
       document.getElementById("minConfidence").value = "";
       document.getElementById("minSeverity").value = "";
+      document.getElementById("includeWontfix").checked = false;
       filteredIssues = issues.slice();
       currentIndex = 0;
       populateSidebar();
@@ -356,7 +448,27 @@
       }
     }
 
-    // After files are loaded, check if the URL hash (using the function name) exists and load that issue.
+    // Toggles the WONTFIX state for the current issue.
+    function toggleWontfixForCurrent() {
+      const currentIssue = filteredIssues[currentIndex];
+      if (!currentIssue) return;
+      toggleWontfixEntry(currentIssue.tree.functionName);
+      updateWontfixButton();
+      if (!document.getElementById("includeWontfix").checked) {
+        applyFilters();
+      }
+    }
+
+    // Toggles the CONFIRMED state for the current issue.
+    function toggleConfirmedForCurrent() {
+      const currentIssue = filteredIssues[currentIndex];
+      if (!currentIssue) return;
+      toggleConfirmedEntry(currentIssue.tree.functionName);
+      updateConfirmedButton();
+      populateSidebar();
+    }
+
+    // Checks the URL hash (using function name) and loads the matching issue.
     function checkURLHash() {
       if (window.location.hash) {
         const hashFnName = decodeURIComponent(window.location.hash.substring(1));
@@ -371,15 +483,11 @@
     // Handle folder selection.
     document.getElementById('folderInput').addEventListener('change', async (event) => {
       const files = event.target.files;
-      // Load all JSON files.
       const jsonFiles = Array.from(files).filter(file => file.name.endsWith('.json'));
-
       if (jsonFiles.length === 0) {
         alert("No JSON files found in this folder.");
         return;
       }
-
-      // Read and parse each JSON file.
       const readFile = (file) => new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -393,29 +501,19 @@
         reader.onerror = () => reject(reader.error);
         reader.readAsText(file);
       });
-
       const promises = jsonFiles.map(file => readFile(file));
       const results = await Promise.all(promises);
       issues = results.filter(issue => issue !== null);
-
       if (issues.length === 0) {
         alert("No valid issue JSON files found.");
         return;
       }
-
-      // Initialize filteredIssues to include all issues.
-      filteredIssues = issues.slice();
-
-      // Hide the folder prompt and show the main interface.
+      // Apply filters on initial load so that the count and sidebar reflect only matching issues.
       document.getElementById('folderPrompt').style.display = 'none';
       document.getElementById('main').style.display = 'flex';
-
-      populateSidebar();
-      // If URL hash exists, try to load that file; otherwise load first issue.
+      applyFilters();
       if (window.location.hash) {
         checkURLHash();
-      } else {
-        loadIssue(0);
       }
     });
 
@@ -432,10 +530,12 @@
         loadIssue(currentIndex);
       }
     });
-
     // Filter buttons.
     document.getElementById('applyFilters').addEventListener('click', applyFilters);
     document.getElementById('clearFilters').addEventListener('click', clearFilters);
+    // WONTFIX and CONFIRMED toggle buttons.
+    document.getElementById('toggleWontfixBtn').addEventListener('click', toggleWontfixForCurrent);
+    document.getElementById('toggleConfirmedBtn').addEventListener('click', toggleConfirmedForCurrent);
   </script>
 </body>
 </html>

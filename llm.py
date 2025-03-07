@@ -110,7 +110,7 @@ def code_tree(tree):
                  A hypothetical coding flaw, like needing to check for a null pointer,
                  etc, usually is not a big deal in practice, since we can assume
                  that such an issue would probably have manifested by now. I don't really
-                 care about most code quality issues.
+                 care about most code quality issues. Don't worry about apparent naming inconsistencies.
 
                  ONLY REPORT ISSUES THAT YOU ARE *VERY* CONFIDENT ABOUT.
                  THE VAST MAJORITY OF THE TIME, THERE WILL BE NO ISSUES.
