@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Postgres Issue Explorer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #folderPrompt {
+      background-color: #f0f0f0;
+      padding: 15px;
+      border-bottom: 1px solid #ccc;
+    }
+    #main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+    #sidebar {
+      width: 250px;
+      background-color: #f5f5f5;
+      border-right: 1px solid #ddd;
+      overflow-y: auto;
+    }
+    #sidebar ul {
+      list-style-type: none;
+      padding: 0;
+      margin: 0;
+    }
+    #sidebar li {
+      padding: 10px;
+      cursor: pointer;
+      border-bottom: 1px solid #ddd;
+    }
+    #sidebar li:hover {
+      background-color: #e0e0e0;
+    }
+    #content {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+    }
+    pre {
+      background-color: #eee;
+      padding: 10px;
+      overflow: auto;
+      white-space: pre-wrap; /* ensures multi-line formatting */
+    }
+    .nav-buttons {
+      margin-top: 20px;
+      display: flex;
+      justify-content: space-between;
+    }
+    a {
+      color: #007BFF;
+      text-decoration: none;
+    }
+    h2, h3 {
+      margin-top: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="folderPrompt">
+    <p>Select the folder containing your issue JSON files:</p>
+    <input type="file" id="folderInput" webkitdirectory directory multiple>
+  </div>
+  <div id="main" style="display:none;">
+    <div id="sidebar">
+      <ul id="issueList">
+        <!-- Issues will be loaded here -->
+      </ul>
+    </div>
+    <div id="content">
+      <!-- Analysis is now at the top -->
+      <h3>Analysis</h3>
+      <pre id="analysis"></pre>
+      <h2 id="functionName">Function Name</h2>
+      <p>
+        <strong>File:</strong>
+        <a id="sourceLink" href="#" target="_blank">Source File</a>
+      </p>
+      <h3>Source Code</h3>
+      <pre id="sourceCode"></pre>
+      <div class="nav-buttons">
+        <button id="prevBtn">Previous</button>
+        <button id="nextBtn">Next</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    let issues = [];
+    let currentIndex = 0;
+    
+    // Converts a local file path (from the JSON) to a GitHub URL.
+    function convertPathToGitHubLink(filePath) {
+      // Adjust based on your repository layout.
+      const marker = "/postgres/postgres/";
+      const index = filePath.indexOf(marker);
+      if (index !== -1) {
+        return "https://github.com/postgres/postgres/blob/master/" + filePath.substring(index + marker.length);
+      }
+      return "#";
+    }
+
+    // Loads a single issue into the content area.
+    function loadIssue(index) {
+      const issue = issues[index];
+      document.getElementById('functionName').innerText = issue.tree.functionName;
+      document.getElementById('sourceCode').innerText = issue.tree.source;
+      
+      // Format the analysis entries for readability.
+      document.getElementById('analysis').innerText = issue.analysis
+        .map(a => 
+          `Type: ${a.type}\nConfidence: ${a.confidence}\nSeverity: ${a.severity}\nDescription: ${a.description}`
+        )
+        .join("\n\n");
+      
+      const githubLink = convertPathToGitHubLink(issue.tree.file);
+      const linkElem = document.getElementById('sourceLink');
+      linkElem.href = githubLink;
+      linkElem.innerText = issue.tree.file;
+
+      // Highlight the selected item in the sidebar.
+      const items = document.querySelectorAll('#issueList li');
+      items.forEach((item, idx) => {
+        item.style.backgroundColor = (idx === index) ? '#ddd' : '';
+      });
+    }
+
+    // Populates the sidebar with a list of issues.
+    function populateSidebar() {
+      const list = document.getElementById('issueList');
+      list.innerHTML = "";
+      issues.forEach((issue, index) => {
+        const li = document.createElement('li');
+        const fileName = issue.tree.file.split('/').pop();
+        li.innerText = issue.tree.functionName + " (" + fileName + ")";
+        li.addEventListener('click', () => {
+          currentIndex = index;
+          loadIssue(currentIndex);
+        });
+        list.appendChild(li);
+      });
+    }
+
+    // Handle folder selection.
+    document.getElementById('folderInput').addEventListener('change', async (event) => {
+      const files = event.target.files;
+      // Load all JSON files (no filtering by directory level).
+      const jsonFiles = Array.from(files).filter(file => file.name.endsWith('.json'));
+
+      if (jsonFiles.length === 0) {
+        alert("No JSON files found in this folder.");
+        return;
+      }
+
+      // Read all JSON files.
+      const readFile = (file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            resolve(JSON.parse(e.target.result));
+          } catch (err) {
+            console.error("Error parsing JSON in", file.name, err);
+            resolve(null);
+          }
+        };
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(file);
+      });
+
+      const promises = jsonFiles.map(file => readFile(file));
+      const results = await Promise.all(promises);
+      issues = results.filter(issue => issue !== null);
+
+      if (issues.length === 0) {
+        alert("No valid issue JSON files found.");
+        return;
+      }
+
+      // Hide the folder prompt and show the main interface.
+      document.getElementById('folderPrompt').style.display = 'none';
+      document.getElementById('main').style.display = 'flex';
+
+      populateSidebar();
+      loadIssue(0);
+    });
+
+    // Navigation buttons.
+    document.getElementById('prevBtn').addEventListener('click', () => {
+      if (currentIndex > 0) {
+        currentIndex--;
+        loadIssue(currentIndex);
+      }
+    });
+    document.getElementById('nextBtn').addEventListener('click', () => {
+      if (currentIndex < issues.length - 1) {
+        currentIndex++;
+        loadIssue(currentIndex);
+      }
+    });
+  </script>
+</body>
+</html>
