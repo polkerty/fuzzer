@@ -70,8 +70,7 @@ def review(diff):
                  If there are no issues, don't try to manufacture one - just return
                  an empty array. Remember, you're describing unintended problems you
                  find in the code, NOT the overall purpose of the patch.
-
-    {diff}'''}
+        '''}
             
             ],
             reasoning_effort="high",
@@ -83,6 +82,89 @@ def review(diff):
         return json.loads(text)
     except:
         return None 
+
+def code_tree(tree):
+    try:
+        response = client.chat.completions.create(
+            messages=[
+                # {"role": "system", "content": "You are a grammar-checking assistant.  "},
+                {"role": "user", "content": f'''
+        You are an experienced PostgreSQL developer. You to be given the source code of a postgres function,
+                 together with the source code (if available) for the functions it calls. 
+                 Please review the code for issues. Return a JSON array describing the issues.
+                 For each issue, you will provide the following:
+                 * description: a short to medium length paragraph explaining the issue.
+                 * type: a string set to one of the following values:
+                    * BUG: a functional error in the code that needs to be fixed
+                    * TYPO: an error in a comment, etc
+                    * PERFORMANCE: a performance.
+                 * confidence: on a scale of 0 to 10, how confident are you that this
+                 is a real issue that the postgresql team would accept as worth fixing?
+                 obviously it's not worth flagging a bunch of issues with low confidence.
+                 * severity: on a scale of 0 to 10, how important is this issue? Many
+                 typos will be a 0, but still worth calling out, and like a zero-day vulnerability
+                 would be a 10. An example of something that usually isn't a bug is an apparent undefined 
+                 variable - usually it'll just be defined somewhere that's not part of the 
+                 patch itself, and this would be caught by the compiler. In general,
+                 you don't need to flag anything that the compiler would catch.
+
+                 ONLY REPORT ISSUES THAT YOU ARE *VERY* CONFIDENT ABOUT.
+                 THE VAST MAJORITY OF THE TIME, THERE WILL BE NO ISSUES.
+
+                 DO NOT REPORT ANY APPARENT COMPILE ERRORS - ASSUME 
+                 POSTGRES HAS SOME PARTICULAR DEFINITIONS ETC OR OTHER,
+                 NON-INCLUDED CODE THAT WOULD FIX IT. THERE ARE DEFINITELY NO COMPILE ERRORS.
+
+                 Your response should have the following format:
+
+                 [
+                    {{
+                        "description": <text>,
+                        "type": <one of BUG|TYPO|PERFORMANCE>,
+                        "confidence": <0 to 10>,
+                        "severity": <0 to 10>
+                    }}, ...
+                 ]
+
+                 Please output only JSON, with no other characters, so we can
+                 parse your output; the first character should be a [. and the last one should
+                 be a ].
+
+                 Without further ado, here is the Git patch:
+
+                 {
+                     tree
+                 }
+
+                ===
+                As discussed above, please output a JSON array with 0 or more issues, in
+                the following format:
+
+                [
+                    {{
+                        "description": <text>,
+                        "type": <one of BUG|TYPO|PERFORMANCE>,
+                        "confidence": <0 to 10>,
+                        "severity": <0 to 10>
+                    }}, ...
+                 ]
+
+                 If there are no issues, don't try to manufacture one - just return
+                 an empty array. 
+
+        '''}
+            
+            ],
+            reasoning_effort="high",
+            model="o3-mini-2025-01-31",
+        )
+
+        text = response.choices[0].message.content
+
+        return json.loads(text)
+    except:
+        return None 
+
 
 def reproduce(diff, issues):
     try:

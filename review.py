@@ -5,7 +5,8 @@ import json
 import os
 
 from worker import run_jobs
-from llm import review, reproduce
+from llm import review, reproduce, code_tree
+from pair import get_code_tree
 
 def get_last_commit_hashes(n, repo_path):
     """
@@ -98,13 +99,28 @@ def reproduce_commit(commit_hash, repo_path="."):
     repro = reproduce(patch, issues)
     print(repro)
 
+def analyze_tree(count, repo_path):
+    trees = get_code_tree(count, repo_path)
+
+    by_key = { tree['functionName']: tree for tree in trees }
+    analysis = run_jobs(code_tree, [(key, val) for key, val in by_key.items()], max_workers=25, payload_arg_key_fn=lambda x: x[0])
+
+    for key, analysis in analysis.items():
+        if len(analysis):
+            with open(f'out/{key}.json', 'w') as f:
+                json.dump({
+                    "tree": by_key[key],
+                    "analysis": analysis,
+                }, f, indent=4)
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Script to either review the last N commits or reproduce a patch for a specific commit."
+        description="Looking for issues in a codebase"
     )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--review", type=int, help="Review the last N commits")
     group.add_argument("--reproduce", type=str, help="Reproduce (fetch diff patch) for the specified commit hash")
+    group.add_argument("--tree", type=int, help="Analyze random code trees in the repo")
     parser.add_argument("--repo", type=str, default=".", help="Path to the git repository (default: current directory)")
     args = parser.parse_args()
 
@@ -112,6 +128,8 @@ def main():
         review_commits(args.review, args.repo)
     elif args.reproduce is not None:
         reproduce_commit(args.reproduce, args.repo)
+    elif args.tree is not None:
+        analyze_tree(args.tree, args.repo)
 
 if __name__ == "__main__":
     main()

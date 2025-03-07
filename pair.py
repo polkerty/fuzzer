@@ -7,7 +7,12 @@ import pickle
 import hashlib
 import time
 
-# Revised regex that includes an optional "comment" group for any immediately preceding comments.
+# -----------------------
+# Regex Definitions
+# -----------------------
+
+# Revised regex that extracts a function definition including an optional preceding comment.
+# It matches an optional comment block (or line comments) immediately preceding the function signature.
 FUNC_REGEX = regex.compile(r'''
 (?P<full>
     ^\s*                                   # Start-of-line optional whitespace
@@ -16,7 +21,7 @@ FUNC_REGEX = regex.compile(r'''
     (?:inline\s+)?                         # Optional "inline" keyword
     (?P<ret>[a-zA-Z_][a-zA-Z0-9_\*\s]+?)\s+  # Return type (non-greedy)
     (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*      # Function name
-    \([^)]*\)\s*                           # Parameter list (until first ')')
+    \([^)]*\)\s*                           # Parameter list (anything until the first ')')
     \{                                     # Opening brace of function body
     (?:                                    # Non-capturing group for body content:
          [^{}]*                           #   Any characters except braces
@@ -29,6 +34,10 @@ FUNC_REGEX = regex.compile(r'''
 # Simple regex to capture potential function calls (naïve approach)
 CALL_REGEX = regex.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
 EXCLUDE_KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof"}
+
+# -----------------------
+# Extraction Functions
+# -----------------------
 
 def extract_functions_from_source(source):
     """
@@ -69,7 +78,8 @@ def build_functions_dict(path):
     """
     Process a single file or all .c/.h files in a directory, and return a dictionary
     mapping function names to a tuple: (function source, filepath).
-    Prints START and FINISHED messages with elapsed time per file.
+    Prints a START message when beginning and a FINISHED message (with elapsed time)
+    when done processing each file.
     """
     all_functions = {}
     if os.path.isfile(path):
@@ -107,6 +117,10 @@ def build_functions_dict(path):
         print(f"[{idx}/{total_files}] FINISHED processing: {filepath} in {elapsed:.2f} seconds.\n")
     return all_functions
 
+# -----------------------
+# Caching Helpers
+# -----------------------
+
 def get_cache_path(repo_path):
     """
     Compute a cache filename based on the repository path.
@@ -140,6 +154,65 @@ def save_cache(cache_path, data):
         print(f"Saved cache to {cache_path}")
     except Exception as e:
         print(f"Failed to save cache: {e}")
+
+def get_code_tree(cnt, repo_path):
+    """
+    Returns a list of 'cnt' specimens from the repository.
+    
+    Each specimen is a dictionary with the following keys:
+      - "functionName": the name of the function
+      - "source": the full source code (including any immediately preceding comments)
+      - "file": the file path where the function was found
+      - "calledFunctions": a list of dictionaries for each function that is called
+         within the function body (one level deep). Each sub-dictionary contains:
+             "functionName", "source", "file"
+    
+    If repo_path is not provided, DEFAULT_REPO_PATH is used.
+    """
+    cache_path = get_cache_path(repo_path)
+    functions = load_cache(cache_path)
+    if functions is None:
+        print("Cache not found or failed to load; scanning repository...")
+        functions = build_functions_dict(repo_path)
+        save_cache(cache_path, functions)
+    else:
+        print(f"Using cached data with {len(functions)} functions.\n")
+    
+    if not functions:
+        print("No functions with bodies were found.")
+        return []
+    
+    # Helper to build a specimen dictionary from a function name.
+    def get_specimen(name):
+        code, filepath = functions[name]
+        calls = find_called_functions(code)
+        called_specimens = []
+        for call in calls:
+            if call in functions:
+                call_code, call_filepath = functions[call]
+                called_specimens.append({
+                    "functionName": call,
+                    "source": call_code,
+                    "file": call_filepath
+                })
+        return {
+            "functionName": name,
+            "source": code,
+            "file": filepath,
+            "calledFunctions": called_specimens
+        }
+    
+    keys = list(functions.keys())
+    if cnt >= len(keys):
+        selected_keys = keys
+    else:
+        selected_keys = random.sample(keys, cnt)
+    specimens = [get_specimen(name) for name in selected_keys]
+    return specimens
+
+# -----------------------
+# Command-line Execution
+# -----------------------
 
 def main(path):
     cache_path = get_cache_path(path)
