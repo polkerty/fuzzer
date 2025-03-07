@@ -29,6 +29,12 @@
       padding: 10px;
       box-sizing: border-box;
     }
+    /* Count of filtered items */
+    #itemCount {
+      font-size: 0.9em;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
     #filterPanel {
       margin-bottom: 15px;
       padding-bottom: 10px;
@@ -60,9 +66,15 @@
       padding: 10px;
       cursor: pointer;
       border-bottom: 1px solid #ddd;
+      /* Default background if no type */
+      background-color: #e0e0e0;
     }
     #issueList li:hover {
-      background-color: #e0e0e0;
+      opacity: 0.9;
+    }
+    /* When active, add a border */
+    #issueList li.active {
+      border: 2px solid #000;
     }
     #content {
       flex: 1;
@@ -86,6 +98,30 @@
     }
     h2, h3 {
       margin-top: 0;
+    }
+    /* Tabs for source code viewer */
+    #tabsContainer {
+      border-bottom: 1px solid #ccc;
+      margin-bottom: 10px;
+    }
+    #tabsList {
+      list-style-type: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-wrap: wrap; /* allows wrapping */
+    }
+    #tabsList li {
+      padding: 8px 12px;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      border-bottom: none;
+      margin-right: 5px;
+      background-color: #f0f0f0;
+    }
+    #tabsList li.active {
+      background-color: #fff;
+      font-weight: bold;
     }
   </style>
 </head>
@@ -111,21 +147,31 @@
         <button id="applyFilters">Apply Filters</button>
         <button id="clearFilters">Clear Filters</button>
       </div>
+      <!-- Count of filtered issues -->
+      <div id="itemCount"></div>
       <ul id="issueList">
         <!-- Issues will be loaded here -->
       </ul>
     </div>
     <div id="content">
-      <!-- Analysis section moved to the top -->
+      <!-- Analysis section at the top -->
       <h3>Analysis</h3>
       <pre id="analysis"></pre>
+      
+      <!-- Tabbed source code viewer -->
       <h2 id="functionName">Function Name</h2>
       <p>
         <strong>File:</strong>
         <a id="sourceLink" href="#" target="_blank">Source File</a>
       </p>
+      <div id="tabsContainer">
+        <ul id="tabsList">
+          <!-- Tabs will be dynamically populated -->
+        </ul>
+      </div>
       <h3>Source Code</h3>
       <pre id="sourceCode"></pre>
+      
       <div class="nav-buttons">
         <button id="prevBtn">Previous</button>
         <button id="nextBtn">Next</button>
@@ -136,6 +182,22 @@
     let issues = [];
     let filteredIssues = [];
     let currentIndex = 0;
+    let currentFunctionIndex = 0; // index of currently selected function tab in the issue
+
+    // Mapping analysis types to colors.
+    function getColorForType(type) {
+      if (!type) return "#e0e0e0";
+      switch (type.toUpperCase()) {
+        case "TYPO":
+          return "#ffcccc"; // light red
+        case "LOGIC":
+          return "#ccffcc"; // light green
+        case "PERFORMANCE":
+          return "#ccccff"; // light blue
+        default:
+          return "#e0e0e0"; // default grey
+      }
+    }
     
     // Converts a local file path (from the JSON) to a GitHub URL.
     function convertPathToGitHubLink(filePath) {
@@ -148,45 +210,97 @@
       return "#";
     }
 
+    // Loads a function's details (for the tabbed source code viewer).
+    function loadFunctionTab(fnObj) {
+      document.getElementById('functionName').innerText = fnObj.functionName;
+      document.getElementById('sourceCode').innerText = fnObj.source;
+      
+      const githubLink = convertPathToGitHubLink(fnObj.file);
+      const linkElem = document.getElementById('sourceLink');
+      linkElem.href = githubLink;
+      linkElem.innerText = fnObj.file;
+    }
+
+    // Populates the tabs for the source code viewer.
+    function populateTabs(allFunctions) {
+      const tabsList = document.getElementById('tabsList');
+      tabsList.innerHTML = "";
+      allFunctions.forEach((fn, index) => {
+        const li = document.createElement('li');
+        li.innerText = fn.functionName;
+        li.addEventListener('click', () => {
+          currentFunctionIndex = index;
+          document.querySelectorAll('#tabsList li').forEach((tab, idx) => {
+            tab.classList.toggle('active', idx === index);
+          });
+          loadFunctionTab(fn);
+        });
+        tabsList.appendChild(li);
+      });
+      // Set first tab active by default.
+      if (allFunctions.length > 0) {
+        document.querySelectorAll('#tabsList li')[0].classList.add('active');
+      }
+    }
+
     // Loads a single issue into the content area.
     function loadIssue(index) {
       const issue = filteredIssues[index];
-      document.getElementById('functionName').innerText = issue.tree.functionName;
-      document.getElementById('sourceCode').innerText = issue.tree.source;
-      
-      // Format each analysis entry for readability.
+      // Format analysis entries.
       document.getElementById('analysis').innerText = issue.analysis
         .map(a => 
           `Type: ${a.type}\nConfidence: ${a.confidence}\nSeverity: ${a.severity}\nDescription: ${a.description}`
         )
         .join("\n\n");
       
-      const githubLink = convertPathToGitHubLink(issue.tree.file);
-      const linkElem = document.getElementById('sourceLink');
-      linkElem.href = githubLink;
-      linkElem.innerText = issue.tree.file;
-
-      // Highlight the selected item in the sidebar.
-      const items = document.querySelectorAll('#issueList li');
-      items.forEach((item, idx) => {
-        item.style.backgroundColor = (idx === index) ? '#ddd' : '';
+      // Build an array of functions: top-level function from tree and any called functions.
+      const allFunctions = [];
+      // Top-level function.
+      allFunctions.push({
+        functionName: issue.tree.functionName,
+        source: issue.tree.source,
+        file: issue.tree.file
       });
+      // Called functions.
+      if (issue.tree.calledFunctions && Array.isArray(issue.tree.calledFunctions)) {
+        issue.tree.calledFunctions.forEach(fn => {
+          allFunctions.push({
+            functionName: fn.functionName,
+            source: fn.source,
+            file: fn.file
+          });
+        });
+      }
+      currentFunctionIndex = 0;
+      populateTabs(allFunctions);
+      if (allFunctions.length > 0) {
+        loadFunctionTab(allFunctions[0]);
+      }
     }
 
-    // Populates the sidebar using filteredIssues.
+    // Populates the sidebar using filteredIssues and updates the count.
     function populateSidebar() {
       const list = document.getElementById('issueList');
       list.innerHTML = "";
       filteredIssues.forEach((issue, index) => {
         const li = document.createElement('li');
+        // Use the first analysis entry's type to determine color.
+        const analysisType = (issue.analysis && issue.analysis.length > 0) ? issue.analysis[0].type : "";
+        li.style.backgroundColor = getColorForType(analysisType);
         const fileName = issue.tree.file.split('/').pop();
         li.innerText = issue.tree.functionName + " (" + fileName + ")";
         li.addEventListener('click', () => {
           currentIndex = index;
           loadIssue(currentIndex);
+          // Mark the active item.
+          document.querySelectorAll('#issueList li').forEach((item, idx) => {
+            item.classList.toggle('active', idx === index);
+          });
         });
         list.appendChild(li);
       });
+      // Update count display.
+      document.getElementById('itemCount').innerText = `Total items: ${filteredIssues.length}`;
     }
 
     // Applies filters based on analysis type, min confidence, and min severity.
@@ -198,7 +312,7 @@
       const minSeverity = minSeverityStr ? parseFloat(minSeverityStr) : null;
       
       filteredIssues = issues.filter(issue => {
-        // An issue is included if at least one analysis entry matches all the filters.
+        // Include the issue if at least one analysis entry matches all filters.
         return issue.analysis.some(a => {
           let match = true;
           if (typeFilter) {
@@ -218,12 +332,12 @@
       if (filteredIssues.length > 0) {
         loadIssue(0);
       } else {
-        // Clear the content area if no issues match.
         document.getElementById("functionName").innerText = "";
         document.getElementById("sourceCode").innerText = "";
         document.getElementById("analysis").innerText = "No issues match the filters.";
         document.getElementById("sourceLink").innerText = "";
         document.getElementById("sourceLink").href = "#";
+        document.getElementById("tabsList").innerHTML = "";
       }
     }
 
