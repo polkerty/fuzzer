@@ -74,7 +74,7 @@ def review(diff):
     {diff}'''}
             
             ],
-            reasoning_effort="low",
+            reasoning_effort="high",
             model="o3-mini-2025-01-31",
         )
 
