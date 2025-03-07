@@ -276,8 +276,8 @@
       if (allFunctions.length > 0) {
         loadFunctionTab(allFunctions[0]);
       }
-      // Update URL hash so that the file being viewed is reflected in the URL.
-      window.location.hash = encodeURIComponent(issue.tree.file);
+      // Update URL hash using the function name.
+      window.location.hash = encodeURIComponent(issue.tree.functionName);
     }
 
     // Populates the sidebar using filteredIssues and updates the count.
@@ -356,11 +356,11 @@
       }
     }
 
-    // After files are loaded, check if the URL has a hash to load a specific file.
+    // After files are loaded, check if the URL hash (using the function name) exists and load that issue.
     function checkURLHash() {
       if (window.location.hash) {
-        const hashFile = decodeURIComponent(window.location.hash.substring(1));
-        const idx = filteredIssues.findIndex(issue => issue.tree.file === hashFile);
+        const hashFnName = decodeURIComponent(window.location.hash.substring(1));
+        const idx = filteredIssues.findIndex(issue => issue.tree.functionName === hashFnName);
         if (idx !== -1) {
           currentIndex = idx;
           loadIssue(currentIndex);
