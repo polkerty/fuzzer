@@ -7,27 +7,22 @@ import pickle
 import hashlib
 import time
 
-# Simplified regex for function definitions with bodies.
-# This pattern:
-#  - Optionally matches "static" and/or "inline" at the beginning.
-#  - Matches a return type (a non-greedy sequence of letters, digits, underscores, asterisks, or spaces).
-#  - Matches a function name.
-#  - Matches a parameter list (anything until the first closing parenthesis).
-#  - Finally, matches a body enclosed in { ... } (allowing for one nested level).
+# Revised regex that includes an optional "comment" group for any immediately preceding comments.
 FUNC_REGEX = regex.compile(r'''
 (?P<full>
-    ^\s*                                  # Start-of-line optional whitespace
-    (?:static\s+)?                        # Optional "static"
-    (?:inline\s+)?                        # Optional "inline"
-    (?P<ret>[a-zA-Z_][a-zA-Z0-9_\*\s]+?)\s+ # Return type (non-greedy)
-    (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*     # Function name
-    \([^)]*\)\s*                          # Parameter list (anything until the first ')')
-    \{                                    # Opening brace of function body
-    (?:                                   # Non-capturing group for function body content:
-        [^{}]*                            #   Any characters except braces
-        (?:\{[^{}]*\}[^{}]*)*              #   Optionally one level of nested braces
+    ^\s*                                   # Start-of-line optional whitespace
+    (?P<comment>(?:/\*.*?\*/\s*|//.*?\n\s*)*)  # Optional preceding comments (block or line)
+    (?:static\s+)?                         # Optional "static" keyword
+    (?:inline\s+)?                         # Optional "inline" keyword
+    (?P<ret>[a-zA-Z_][a-zA-Z0-9_\*\s]+?)\s+  # Return type (non-greedy)
+    (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*      # Function name
+    \([^)]*\)\s*                           # Parameter list (until first ')')
+    \{                                     # Opening brace of function body
+    (?:                                    # Non-capturing group for body content:
+         [^{}]*                           #   Any characters except braces
+         (?:\{[^{}]*\}[^{}]*)*             #   Optionally one level of nested braces
     )
-    \}                                    # Closing brace of function body
+    \}                                     # Closing brace of function body
 )
 ''', regex.MULTILINE | regex.VERBOSE | regex.DOTALL)
 
@@ -38,7 +33,7 @@ EXCLUDE_KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof"}
 def extract_functions_from_source(source):
     """
     Given complete C source code as a string, return a dictionary mapping
-    function names to their full source code (signature plus body).
+    function names to their full source code (including any immediately preceding comments).
     If regex matching times out (after 1 second), skip this file.
     """
     functions = {}
@@ -47,7 +42,7 @@ def extract_functions_from_source(source):
             func_name = match.group('name')
             func_source = match.group('full')
             functions[func_name] = func_source
-    except regex.TimeoutError:
+    except TimeoutError:
         print("  Regex matching timed out on this file. Skipping function extraction.")
         return {}
     return functions
@@ -74,8 +69,7 @@ def build_functions_dict(path):
     """
     Process a single file or all .c/.h files in a directory, and return a dictionary
     mapping function names to a tuple: (function source, filepath).
-    Prints a START message when beginning and a FINISHED message (with elapsed time)
-    when done processing each file.
+    Prints START and FINISHED messages with elapsed time per file.
     """
     all_functions = {}
     if os.path.isfile(path):
